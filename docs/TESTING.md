@@ -46,7 +46,25 @@ com.android.contacts
 - 最终对端挂断，Telecom 记录 `MISSED` / `INCOMING_MISSED`；
 - 日志中没有 `hook_hit`（因为触发点已经错过）。
 
-## 2026-11-08 实测对照
+## 2026-11-08 成功用例（TC@1，20:18:59）
+
+| 时间 | 事件 |
+|---|---|
+| 20:18:59.587 | Osbot `onCreate` → `TriggerAnswerObserver 已注册`（预期；不是 `onCallAdded`） |
+| 20:18:59.700 | `hook_hit id=osbot.skip_call_added` → 新引擎 `onCallAdded` 被短路 |
+| 20:19:00.229 | `hook_hit id=aiasst.app_info_meta` → `onBind` / `onCallAdded` 恢复 |
+| 20:19:00.510/524 | `hook_hit incallui.trigger_answer_enabled` / `auto_answer_enabled` → false |
+| 20:19:00.643 | `hook_hit incallui.support_new_engine` → false |
+| 20:19:00.644 | `Awake ai assistant.` |
+| 20:19:00.651 | aiasst `PhoneRingReceiver` 收到 `incall_ring` |
+| 20:19:10.942 | 通话 `INCOMING → ACTIVE`（旧引擎自动接听） |
+| 20:19:12.192 | `hook_hit phone.config_query`；`registerTriggerObserver: current trigger value=null` |
+| 20:19:33.194 | `SET_DISCONNECTED`：`REMOTE` / `NORMAL`（对端正常挂断） |
+| 20:19:46.056 | `hook_hit contacts.resolve_activity`（打开拨号/联系人时命中） |
+
+无 `am_crash`、无 `class_not_found` / `method_not_found` / `install_failed`。
+
+## 2026-11-08 失败对照（第一次测试）
 
 | 通话 | 操作 | 结果 |
 |---|---|---|

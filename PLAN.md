@@ -355,6 +355,7 @@ unzip -l module-debug.apk | findstr META-INF/xposed
 |---|---|---|
 | TC@1 | 响铃中执行 5 包 `force-stop` | 触发点被杀死；对端 20:10:04 挂断，Telecom `MISSED` / `INCOMING_MISSED` / `CODE_USER_TERMINATED_BY_REMOTE` |
 | TC@2 | 无 `force-stop`，模块已就绪 | `aiasst.app_info_meta` 命中；旧 `InCallAiServiceImpl` 绑定并 `onCallAdded`；`Awake ai assistant.` → `incall_ring`；旧引擎自动接听成功 |
+| TC@1 20:18:59（重启后） | 模块完整就绪 | 7/7 Hook 命中；`INCOMING → ACTIVE` 20:19:10.942；20:19:33 对端正常挂断；无 crash/class/method 错误 |
 
 - InCallUI **没有崩溃**；TC@1 结束后 20:10:13 被系统 `umms_pressure` 回收，Telecom `isCrashed: false`。
 - 根因是验证流程在响铃中强停宿主，不是模块 Hook。
