@@ -1,9 +1,16 @@
-# OhMiCallAssistant 实施计划（待审阅）
+# OhMiCall 实施计划 v2（待审阅）
 
 目标：在 HyperOS 4 CN 上，用单个 LSPosed 模块把 AI 通话链路切回 HyperOS 3 的旧引擎
-`com.xiaomi.aiasst.service`，并熔断 HyperOS 4 新增的 HyperPhone 配置中心与 Osbot/MiClaw 新引擎。
+`com.xiaomi.aiasst.service`，并熔断 HyperOS 4 的 HyperPhone 配置中心与 Osbot/MiClaw 新引擎。
 
 约束：libxposed **API 102**、**静态 scope**、**Hot Reload**、Java、最小 Hook、可诊断、可回退。
+
+v2 相对 v1 的变化：
+
+1. 去掉两个混淆目标：不再 Hook `k3.l.k` 与 `A1.O.e`，改为 Hook 它们读取的**框架 API**。
+2. 明确 Hot Reload 的 API / 框架 / SDK 要求。
+3. 锁定已确认决策：空 `MatrixCursor`、Osbot `onCallAdded` 整段短路、不阻断 delay、
+   HyperOS 3 纯 no-op、应用名 `OhMiCall`、无设置页、release 签名、GitHub Actions。
 
 ---
 
@@ -11,75 +18,59 @@
 
 | 项 | 结论 | 来源 |
 |---|---|---|
-| 远程仓库 | `https://github.com/xrh0905/OhMiCallAssistant` → HTTP 404 | 本次探测 |
-| 本地目录 | 非 git 仓库，仅 `apk/ decomp/ docs/ plugins/` | `git status` |
-| OS4 版本基线 | HyperPhone 15.0.3 / InCallUI 40.01.58 / Contacts 18.30.00.73 / aiasst 6.2.2 / voiceassist 8.2.65 | `docs/AI_CALL_ASSISTANT_HYPEROS3_VS_HYPEROS4.md` |
-| 旧参考实现 | 4 个已部署 LSPilot BeanShell 插件 + 1 个未部署 Osbot 插件 | `plugins/`、docs §6 |
-| 构建环境 | JDK 21、SDK `D:\AndroidSDK`（platform 36/37、build-tools 36.0.0）、Gradle 8.14.3 与 AGP 8.12.0 已缓存、`io.github.libxposed:api:102.0.0` 已缓存 | 本次检查 |
-| 设备 | `adb devices` 为空，当前无法真机验证 | 本次检查 |
-
-**核心判断**：OS4 不是新增功能，而是「配置中心 + 双引擎 + 三 meta 契约」。只要同时满足：
-
-1. InCallUI 认为新引擎不可用 → 走旧 `AiAssistantHelper.enterAi()`；
-2. aiasst 的三 meta 门禁为 false → 旧 `InCallService` 正常绑定；
-3. Contacts 的新设置入口判断为 false → 回退旧记录/设置入口；
-4. HyperPhone 配置查询读不到 `enabled/trigger` → 新引擎无配置驱动；
-5. Osbot 的 `onCallAdded` 不接管 → 新引擎不参与通话；
-
-AI 通话（手动入口、自动接听、第二路策略、记录详情）就回到 OS3 行为。
+| 远程仓库 | `https://github.com/xrh0905/OhMiCallAssistant` → HTTP 404 | 探测 |
+| 本地目录 | 已 `git init`，首次提交 `4224bee`；`apk/ decomp/` 本地保留、不入库 | `git log` |
+| OS4 基线 | HyperPhone 15.0.3 / InCallUI 40.01.58 / Contacts 18.30.00.73 / aiasst 6.2.2 / voiceassist 8.2.65 | `docs/` |
+| 构建环境 | JDK 21、SDK platform 36/37、build-tools 36.0.0、Gradle 8.14.3、AGP 8.12.0、`libxposed:api:102.0.0` 均已缓存 | 本地检查 |
+| 设备 | `adb devices` 为空 | 本地检查 |
 
 ---
 
-## 2. 工作空间整理
+## 2. 抗混淆策略（v2 核心）
 
-### 2.1 本次完成
+### 2.1 为什么旧方案会失效
 
-```text
-OhMiCallAssistant/
-├── .gitignore          # 忽略 apk/、decomp/、build/、LSPilot 日志
-├── README.md           # 工作空间地图、阶段状态、证据基线
-├── PLAN.md             # 本文件
-├── docs/               # 既有逆向结论（入库）
-├── plugins/            # 既有 LSPilot 插件（入库；log/error 忽略）
-├── apk/                # 基线 APK（本地保留，不入库）
-└── decomp/             # jadx 源码（本地保留，不入库）
-```
+v1（沿用 LSPilot）直接 Hook：
 
-- `git init`，首次提交（如本机 git user 已配置）。
-- **不移动** `apk/ decomp/ docs/ plugins/`：两份文档大量引用这些相对路径，移动会破坏证据链。
-- 不删除任何既有文件；`plugins/` 作为 Hook 语义与哈希证据保留。
+- `com.android.contacts` → `k3.l.k(Context)`
+- `com.xiaomi.aiasst.service` → `A1.O.e(Context)`
 
-### 2.2 Phase 1 目标结构（待批准后创建）
+这两个类名/方法名是 R8 产物，随应用版本重新混淆即失效。字符串证据（`findNewAiCallSetting`、
+`InCallUi supports ai assist answer`）也可能被重命名或移除。
 
-```text
-OhMiCallAssistant/
-├── settings.gradle.kts
-├── build.gradle.kts
-├── gradle.properties
-├── gradlew / gradlew.bat / gradle/wrapper/
-└── module/
-    ├── build.gradle.kts
-    ├── proguard-rules.pro
-    └── src/main/
-        ├── AndroidManifest.xml
-        ├── java/io/github/xrh0905/ohmicall/
-        │   ├── ModuleMain.java
-        │   ├── HookRegistry.java
-        │   ├── hook/PhoneHooks.java
-        │   ├── hook/InCallUiHooks.java
-        │   ├── hook/ContactsHooks.java
-        │   ├── hook/AiasstHooks.java
-        │   └── hook/OsbotHooks.java
-        └── resources/
-            ├── META-INF/xposed/java_init.list
-            ├── META-INF/xposed/module.prop
-            ├── META-INF/xposed/scope.list
-            └── res/values/strings.xml
-```
+### 2.2 替代原则：Hook「输入」而不是 Hook「混淆实现」
+
+| 原混淆目标 | 它真正做的事 | 稳定替代点 | 版本稳定性 |
+|---|---|---|---|
+| Contacts `k3.l.k` | `PackageManager.resolveActivity("miui.intent.action.AiCallSetting")` 是否非空 | `ApplicationPackageManager.resolveActivity(Intent, int)` / `(Intent, ResolveInfoFlags)` | Android 框架 API，跨 HyperOS 版本稳定 |
+| aiasst `A1.O.e` | 读三个包的 APK meta：`xiaoai_support_autoanswer`、`support_ai_call`、`incall_ai_assist_answer` | `ApplicationPackageManager.getApplicationInfo(String, int)`，只把 `com.android.incallui` 的 `incall_ai_assist_answer` 改 0 | Android 框架 API，跨 HyperOS 版本稳定 |
+
+这样：
+
+- 目标应用更新、类名重排、方法重命名都不影响 Hook 命中；
+- 不需要 DexKit、不需要运行时扫 DEX、不需要适配混淆映射；
+- Hook 语义仍是最小范围：只改这两个 `PackageManager` 调用的结果。
+
+### 2.3 分层选择
+
+| 层 | 用于 | 例子 |
+|---|---|---|
+| A. 框架 API（首选，抗混淆） | 混淆 helper 的输入 | `resolveActivity`、`getApplicationInfo` |
+| B. 稳定命名应用类 | 未混淆、语义明确的决策点 | `AiAssistantUtils`、`Utils`、`AiCallConfigProvider`、`OsbotInCallService` |
+| C. 混淆名（v2 不使用） | 仅当 A/B 都不可能时 | `k3.l`、`A1.O` |
+
+层 B 的类在当前 APK 中均为可读名称，且是系统/应用公开语义点；仍记录版本矩阵，
+缺失时 `class_not_found` 后 no-op，不崩溃。
+
+### 2.4 不做 DexKit 动态查找的理由
+
+- 两个混淆点都已被框架 API 完全覆盖；
+- DexKit 引入额外依赖、首次扫描成本、混淆字符串本身也可能变化；
+- 保留为未来“第三层”方案，不进入 v1 实现。
 
 ---
 
-## 3. 模块配置
+## 3. 模块工程
 
 ### 3.1 `META-INF/xposed/module.prop`
 
@@ -91,10 +82,6 @@ exceptionMode=protective
 autoHotReload=true
 ```
 
-- `staticScope=true`：scope 由 `scope.list` 固定，用户无需/不能手动勾选（满足「Static Scope」）。
-- `autoHotReload=true`：模块 App 更新时框架尝试热重载；仍由旧代 `onHotReloading()` 放行。
-- `exceptionMode=protective`：与 Hook 侧 `ExceptionMode.DEFAULT` 配合，Hook 异常不炸宿主。
-
 ### 3.2 `META-INF/xposed/scope.list`
 
 ```text
@@ -105,8 +92,8 @@ com.xiaomi.aiasst.service
 com.miui.voiceassist
 ```
 
-仅这 5 个宿主，不含 `system`、`com.android.systemui`、framework。`com.miui.voiceassist` 体积大，
-但新引擎服务在该包内，无法省略。
+- 保留 `com.xiaomi.phone`：配置熔断 Hook 落在这里（见 H1）。
+- 不含 `system` / SystemUI / framework。
 
 ### 3.3 `META-INF/xposed/java_init.list`
 
@@ -114,54 +101,72 @@ com.miui.voiceassist
 io.github.xrh0905.ohmicall.ModuleMain
 ```
 
-恰好一个 Java 入口类（Hot Reload 的硬性要求）。
+恰好一个 Java 入口（Hot Reload 硬性要求）。
 
 ### 3.4 AndroidManifest
 
-- 无 Activity/Service/Receiver，无运行时权限。
-- `android:label` / `android:description` 使用标准资源，不使用旧 `xposedmodule` metadata。
-- 包名 `io.github.xrh0905.ohmicall`；versionName `0.1.0`。
+- 包名 `io.github.xrh0905.ohmicall`，label `OhMiCall`，无 Activity/Service/Receiver/权限。
+- `android:description` 说明“HyperOS 4 AI 通话回退到旧引擎”。
+- 不使用旧 `xposedmodule` metadata。
 
----
-
-## 4. 入口与路由
-
-`ModuleMain extends io.github.libxposed.api.XposedModule`：
-
-| 回调 | 行为 |
-|---|---|
-| `onModuleLoaded` | 记录进程名、API/框架版本；不查找目标类 |
-| `onPackageReady` | 按 `packageName + processName` 路由；用 `param.getClassLoader()` 安装 Hook；每个宿主只装一次 |
-| `onHotReloading` | `setSavedInstanceState(processName)`；无线程/无 native，返回 `true` |
-| `onHotReloaded` | 用旧 `HookHandle.getId()` 查新代 Hooker，`replaceHook()`；未知 id `unhook()` |
-
-路由规则：
+### 3.5 源码结构
 
 ```text
-packageName 命中 5 个宿主之一
-  → processName 记录并打日志（默认要求 == packageName；若真机日志显示目标类在 :xxx 进程，
-    再按证据扩展，不做“全进程盲装”）
-  → 反射解析目标类/方法
-  → 命中则安装，缺失则 event=class_not_found / method_not_found 并继续
+module/src/main/java/io/github/xrh0905/ohmicall/
+├── ModuleMain.java            # 生命周期、包/进程路由、Hot Reload
+├── HookTable.java             # id -> Hooker 注册表
+├── hook/PhoneHooks.java
+├── hook/InCallUiHooks.java
+├── hook/ContactsHooks.java
+├── hook/AiasstHooks.java
+└── hook/OsbotHooks.java
 ```
-
-每个 Hook 独立 try/catch，单个失败不影响其它宿主。
 
 ---
 
-## 5. Hook 清单
+## 4. Hook 清单 v2
 
-| ID | 宿主 | 目标 | 修改 | 目的 |
+| ID | 宿主 | 目标（v2 稳定点） | 修改 | 对应旧方案 |
 |---|---|---|---|---|
-| `phone.config_query` | `com.xiaomi.phone` | `com.xiaomi.phone.aicall.AiCallConfigProvider#query(Uri, String[], String, String[], String)` | `ai-assist-call-config/settings/{key}` 且 key ∈ 熔断集合 → 返回空结果 | 新引擎读不到 `true` |
-| `incallui.support_new_engine` | `com.android.incallui` | `com.android.incallui.aiassistant.AiAssistantUtils#supportXiaoAiAutoAnswer(Context)` | → `false` | 入口回退旧引擎 |
-| `incallui.auto_answer_enabled` | `com.android.incallui` | `com.android.incallui.util.Utils#aiCallAutoAnswerEnabled()` | → `false` | 关闭新引擎 UI 自动接听分支 |
-| `incallui.trigger_answer_enabled` | `com.android.incallui` | `com.android.incallui.util.Utils#aiCallAutoTraggerAnswerEnabled()` | → `false` | 关闭 trigger/第二路拒接/通知接管分支 |
-| `contacts.new_setting_entry` | `com.android.contacts` | `k3.l#k(Context)`（`private static boolean`） | → `false` | 联系人/拨号回退旧入口 |
-| `aiasst.new_engine_gate` | `com.xiaomi.aiasst.service` | `A1.O#e(Context)`（`public static boolean`） | → `false` | 旧引擎恢复 `onBind/onCallAdded` |
-| `osbot.skip_call_added` | `com.miui.voiceassist` | `com.aios.osbot.tools.phone.service.OsbotInCallService#onCallAdded(Call)` | 不 `proceed`，直接返回 | 新引擎不接管通话、不自动接听 |
+| `phone.config_query` | `com.xiaomi.phone` | `com.xiaomi.phone.aicall.AiCallConfigProvider#query(Uri, String[], String, String[], String)` | `ai-assist-call-config/settings/{key}` 且 key ∈ 熔断集合 → 空 `MatrixCursor` | 同 v1 |
+| `incallui.support_new_engine` | `com.android.incallui` | `com.android.incallui.aiassistant.AiAssistantUtils#supportXiaoAiAutoAnswer(Context)` | → `false` | 同 v1 |
+| `incallui.auto_answer_enabled` | `com.android.incallui` | `com.android.incallui.util.Utils#aiCallAutoAnswerEnabled()` | → `false` | 同 v1 |
+| `incallui.trigger_answer_enabled` | `com.android.incallui` | `com.android.incallui.util.Utils#aiCallAutoTraggerAnswerEnabled()`（原拼写） | → `false` | 同 v1 |
+| `contacts.resolve_activity` | `com.android.contacts` | `android.app.ApplicationPackageManager#resolveActivity(Intent, int)`、`#resolveActivity(Intent, ResolveInfoFlags)` | 命中 `miui.intent.action.AiCallSetting` 或组件 `com.xiaomi.phone/.settings.AiCallDetailActivity` → `null` | **替换** `k3.l.k` |
+| `aiasst.app_info_meta` | `com.xiaomi.aiasst.service` | `android.app.ApplicationPackageManager#getApplicationInfo(String, int)` | 包名 `com.android.incallui` → 返回克隆 `ApplicationInfo`，`metaData.incall_ai_assist_answer = 0` | **替换** `A1.O.e` |
+| `osbot.skip_call_added` | `com.miui.voiceassist` | `com.aios.osbot.tools.phone.service.OsbotInCallService#onCallAdded(Call)` | 不 `proceed`，直接返回 | 新增（LSPilot 缺口） |
 
-### 5.1 熔断 key 集合（`phone.config_query`）
+### 4.1 `contacts.resolve_activity` 细节
+
+- 证据：
+  - `decomp/os4_contacts/sources/k3/l.java:322-330`：`k()` → `resolveActivity(r(), 65536)`；
+  - `k3/l.java:384`：`r()` = `new Intent("miui.intent.action.AiCallSetting")`；
+  - `k3/l.java:347-353`：`j()` → `resolveActivity(q(), 65536)`；
+  - `k3/l.java:377-380`：`q()` = 显式组件 `com.xiaomi.phone/com.xiaomi.phone.settings.AiCallDetailActivity`；
+  - `DialerMenuDialog.java:280/412/422` 与 `DialerOverflowMenuHelper.java:125/193` 由 `k3.l.C`/`j` 决定入口。
+- 过滤两种 Intent：action、显式组件；其余 `proceed()` 原样。
+- 不拦截 `n()`（旧 `aicalllog_detail`），旧记录入口保持可用。
+- `k3.l.H`（旧引擎 `GET_AICALL_AVAILABLE`）不改：回退旧引擎后 AI 可用性应为 true。
+
+### 4.2 `aiasst.app_info_meta` 细节
+
+- 证据：
+  - `decomp/os4_aiasst/sources/A1/O.java:44-57`：`e = g && c && f`；
+  - `A1/O.java:60-67`：`f` 读 `com.android.incallui` 的 `incall_ai_assist_answer >= 1`；
+  - `InCallAiServiceImpl.java:236-257`：`onBind` / `onCallAdded` 在 `O.e(this)` 为 true 时直接返回。
+- 只把 `incall_ai_assist_answer` 置 0（最小改动），`g`/`c` 不动。
+- 返回克隆对象，避免修改 `PackageManager` 内部共享缓存：
+  `new ApplicationInfo(orig)` + `new Bundle(orig.metaData)`。
+- 仅在包名 `com.android.incallui` 时生效；其余包名直接 `proceed()`。
+
+### 4.3 `osbot.skip_call_added` 细节
+
+- 证据：`OsbotInCallService.java:7133-7160`；自动接听/**trigger observer**/协程均从 `onCallAdded` 进入。
+- 整段短路：不注册 callback、不注册 observer、不启动 `C01941` 协程、不执行 `setupAutoAnswer`。
+- 不 Hook Kotlin suspend `setupAutoAnswer`；不 Hook `onStartCommand`（仅 super）。
+- 副作用：新引擎的 TTS/摘要/骚扰拦截在该服务内一并停用；这是“回退旧引擎”的预期代价。
+
+### 4.4 配置熔断集合与返回
 
 ```text
 ai_call_auto_answer_enabled
@@ -169,66 +174,72 @@ ai_call_auto_answer_enabled_sim2
 ai_call_trigger_answer
 ```
 
-返回值策略：
-
-- **推荐**：返回 `new MatrixCursor(projection != null ? projection : new String[]{"value"}, 0)`，
-  即“key 不存在”的空游标；对 `query` 的所有标准消费者都合法，避免 null 解引用。
-- 备选：返回 `null`（LSPilot 已在真机验证：voice `AiCallConfigHelper.getConfig` 与 InCallUI 均判空回落默认值）。
-- 不写数据库、不改 HyperPhone 设置页展示，只影响读取口径。
-
-### 5.2 不 Hook 的点及理由
-
-| 点位 | 决定 | 理由 |
-|---|---|---|
-| `k3.l#H(Context)`（`GET_AICALL_AVAILABLE`） | 不改 | 这是旧引擎可用性；回退旧引擎时应保持可用，否则 AI 入口整体消失 |
-| `com.xiaomi.phone.settings.AiCallStatusProvider#query(check)` | 不改 | 只影响新设置页能力判断，不影响行为；减少副作用 |
-| `OsbotInCallService#setupAutoAnswer` | 不直接 Hook | Kotlin suspend 方法，拦截复杂度与风险高；`onCallAdded` 短路已覆盖其唯一调用路径 |
-| `OsbotInCallService#onStartCommand` | 不改 | 仅 `super` 转发，无业务 |
-| `InCallUI.CallCardFragment#onAiCallClick` | 不改 | 上游 flag 已决定分支，优先最小 Hook |
-| `aiasst.InCallAiServiceImpl#onBind/onCallAdded` | 不改 | 门禁方法 `A1.O.e` 是唯一决策点，直接 Hook 更稳 |
-
-### 5.3 可选加固
-
-- `osbot.config_get`：`com.aios.osbot.tools.phone.data.AiCallConfigHelper#getConfig(String, String)`
-  对上述 3 个 key 直接返回 `defaultValue`。默认**不做**：`onCallAdded` 已阻断，额外 Hook 只会扩大影响面。
-- 若真机发现 `supportXiaoAiAutoAnswer` 被 ART inline 导致未命中：优先改 Hook `CallCardFragment.onAiCallClick`
-  或 `CallCardPresenter` 分支；最后才考虑 `deoptimize()`。
+- 返回空 `MatrixCursor`：`projection != null ? projection : new String[]{"value"}`，0 行。
+- 不阻断 `ai_call_auto_answer_delay(_sim2)`（已确认）。
+- 不写数据库、不改设置页展示。
 
 ---
 
-## 6. Hot Reload 设计
+## 5. 生命周期与路由
 
-1. 所有 Hook 使用稳定 `setId(...)`；新代 `HookRegistry` 提供 `id → Hooker` 静态映射。
-2. `onHotReloaded`：
-   ```text
-   for handle in oldHandles:
-       hooker = HookRegistry.get(handle.getId())
-       if hooker != null and process is still a target: handle.replaceHook(hooker)
-       else handle.unhook()
-   ```
-   `replaceHook` 保留 executable / priority / exception mode / id，且不影响已进入的调用。
-3. 不跨代保存目标 ClassLoader、目标对象、HookHandle；`setSavedInstanceState` 只放 `String`（进程名）。
-4. 已知限制：包生命周期回调不会重放。若某宿主在热重载前尚未安装 Hook，新代不会自动补装，
-   需强停该宿主进程；日志会明确记录 `hot_reloaded replaced=N unhooked=M`。
-5. 不使用后台线程、native hook、外部回调，`onHotReloading` 无需额外清理。
+| 回调 | 行为 |
+|---|---|
+| `onModuleLoaded` | 记录进程名、`getApiVersion()`、框架名/版本；不做目标类查找 |
+| `onPackageReady` | 用 `param.getClassLoader()`；按 `packageName + processName` 路由；每宿主只装一次 |
+| `onHotReloading` | `setSavedInstanceState(processName)`；返回 `true`；无线程/native |
+| `onHotReloaded` | 旧 `HookHandle` 按 `getId()` 查 `HookTable`，`replaceHook()`；未知 id `unhook()` |
+
+- 包名/进程名双重过滤；进程名先按 `== packageName`，真机日志出现 `:xxx` 再按证据扩展。
+- 单 Hook 失败只记录，不影响其它宿主。
+- 所有日志前缀 `OhMiCall`，事件码：`module_loaded`、`route`、`hook_installed`、`hook_hit`、
+  `class_not_found`、`method_not_found`、`hot_reloaded`。
 
 ---
 
-## 7. 构建配置
+## 6. Hot Reload 的 API / 框架 / SDK 要求
 
-| 项 | 值 | 依据 |
-|---|---|---|
-| Gradle | 8.14.3（wrapper，本地已缓存） | `~/.gradle/wrapper/dists` |
-| AGP | 8.12.0（本地已缓存） | `~/.gradle/caches/.../com.android.tools.build/gradle/8.12.0` |
-| compileSdk / targetSdk | 36 / 36 | `D:\AndroidSDK\platforms\android-36` |
-| minSdk | 26 | libxposed API 102 下限 |
-| Java | 17（toolchain） | AGP 8.12 + JDK 21 运行 |
-| 依赖 | `compileOnly("io.github.libxposed:api:102.0.0")` | 已缓存，官方要求 compileOnly |
-| 打包 | `packaging.resources.merges += "META-INF/xposed/*"` | 官方 example |
+### 6.1 结论
 
-- 不引入 AndroidX/Kotlin；模板中的 `@NonNull` 省略，避免额外依赖。
-- Debug 用默认 debug keystore 产出可安装 APK；Release 签名从 `keystore.properties`/环境变量读取，
-  文件不入库。R8 规则：
+| 项 | 要求 |
+|---|---|
+| libxposed API | **102**（`onHotReloading`/`onHotReloaded`/`replaceHook` 均 `@SinceApi(API_102)`） |
+| `module.prop` | `minApiVersion=102`、`targetApiVersion=102`、`autoHotReload=true` |
+| Java 入口 | **恰好 1 个**；0 个或多个入口不支持热重载 |
+| 框架 | 必须实现 libxposed API 102；API 101-only 的框架无法加载 `minApiVersion=102` 的模块 |
+| Android SDK | libxposed 整体 `minSdk 26`；热重载本身不额外要求 Android API 级别；`onPackageLoaded` 才要求 API 29+（本模块不用） |
+| 触发 | 模块 APK 覆盖安装且目标进程仍存活；或模块 App 通过 `libxposed/service` 手动触发（本模块无 UI，不引入） |
+| 限制 | 不重放 `onModuleLoaded`/`onPackageReady`；只支持已安装 Hook 的原子替换；框架可返回 `UNSUPPORTED` |
+
+### 6.2 框架版本
+
+- LSPosed 需为支持 API 102 的 2.2.x 级别构建（社区参考环境为 LSPosed 2.2.0-it，API 102，version code 7866）；
+  Vector 2.2+ 也已支持 API 102 热重载。
+- 本模块在 `onModuleLoaded` 打印 `api=... framework=... version=...`；
+  若 `getApiVersion() < 102`，记录 `unsupported_api`，Hook 仍安装，但不要期望热重载。
+- 官方 LSPosed GitHub Releases 停留在 1.9.2，2.x 通过其发行渠道分发；README 会写清版本要求。
+
+### 6.3 热重载实现约束
+
+- `onHotReloaded` 只使用 `HookHandle` + 新代 `HookTable`，不跨代保存目标 `ClassLoader`、目标对象、
+  旧代静态集合。
+- Hook 全部带稳定 ID，可被 `replaceHook` 原子替换。
+- 热重载前未安装 Hook 的宿主，新代不会补装；日志提示“强停该宿主”。
+
+---
+
+## 7. 构建与签名
+
+| 项 | 值 |
+|---|---|
+| Gradle | 8.14.3（wrapper） |
+| AGP | 8.12.0 |
+| compileSdk / targetSdk | 36 / 36 |
+| minSdk | 26 |
+| Java | 17 |
+| 依赖 | `compileOnly("io.github.libxposed:api:102.0.0")` |
+| 打包 | `packaging.resources.merges += "META-INF/xposed/*"` |
+
+R8：
 
 ```proguard
 -dontwarn io.github.libxposed.annotation.**
@@ -238,89 +249,134 @@ ai_call_trigger_answer
 }
 ```
 
-- 若后续必须 `compileSdk 37`：升级 AGP 9.1.1 + Gradle 9.x（均已缓存），作为备用方案，
-  本次不启用，避免 AGP 9 的 DSL 变动扩大计划面。
+签名：
+
+- debug：默认 debug keystore，用于本地/PR 验证。
+- release：`keystore.properties`（本地，忽略）或 CI secrets；
+  `signingConfigs.release` 仅在对应变量存在时启用，否则 release 不产出。
+- `versionCode` 默认 1；CI 可用 `GITHUB_RUN_NUMBER` 覆盖；`versionName` 来自 tag 或 `0.1.0`。
 
 ---
 
-## 8. 验证矩阵
+## 8. GitHub Actions
 
-### 8.1 构建/静态校验（当前可做）
+新增 `.github/workflows/build.yml`：
+
+```yaml
+name: build
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew
+      - run: ./gradlew --no-daemon :module:assembleDebug
+      - run: unzip -l module/build/outputs/apk/debug/*.apk | grep META-INF/xposed/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OhMiCall-debug
+          path: module/build/outputs/apk/debug/*.apk
+      # release（仅 tag，且 secrets 存在时）
+      - name: Decode keystore
+        if: startsWith(github.ref, 'refs/tags/')
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
+      - name: Build release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon :module:assembleRelease
+      - name: Verify signature
+        if: startsWith(github.ref, 'refs/tags/')
+        run: apksigner verify --print-certs module/build/outputs/apk/release/*.apk
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: module/build/outputs/apk/release/*.apk
+```
+
+- 需要配置的 secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、
+  `ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。
+- PR/push 只构建 debug；tag 构建 release 并发布。
+- CI 只做构建与 APK 元数据校验；行为验证需要真机。
+
+---
+
+## 9. 验证矩阵
+
+### 9.1 本地/CI
 
 ```text
 gradlew.bat :module:assembleDebug
-unzip -l module/build/outputs/apk/debug/module-debug.apk | findstr META-INF/xposed
+unzip -l module-debug.apk | findstr META-INF/xposed
 ```
 
-必须存在：`module.prop`、`java_init.list`、`scope.list`；`aapt2 dump badging` 校验 label/description/minSdk。
+必须包含 `module.prop`、`java_init.list`、`scope.list`；`aapt2 dump badging` 检查 label/minSdk。
 
-### 8.2 真机（需要设备；当前 adb 无设备）
-
-安装 → LSPosed 启用（scope 静态，无需手选）→ 强停 5 个宿主 → 复现。
-
-日志期望（模块 TAG `OhMiCall`，LSPosed 日志）：
-
-```text
-module_loaded process=...
-route package=... process=... classloader=...
-hook_installed id=... 
-hook_hit id=...        # 触发后
-class_not_found ...    # 仅版本不匹配时
-```
-
-功能用例：
+### 9.2 真机
 
 | # | 场景 | 期望 |
 |---|---|---|
-| V1 | 来电点击 AI 按钮 | 出现旧 `AiModeDialog`/旧 CallScreen，不出现 `AiAssistCallFragment` |
-| V2 | `Settings.Global com.xiaomi.aiasst.call.autoAnswer=1` + 来电 | 旧链路发 `incall_ring` → 旧引擎自动接听 |
-| V3 | Osbot/MiClaw | 无新引擎接管/TTS/自动接听；日志无 `onCallAdded` 业务 |
-| V4 | 拨号/联系人 AI 入口 | 回退 `aicalllog_detail`/旧设置，不跳 HyperPhone `AiCallDetailActivity` |
-| V5 | AI 通话中第二路来电 | 不被 `AiAssistCallScreeningService` 自动拒接 |
-| V6 | HyperPhone AI 设置页 | 页面可开；开关不再驱动新引擎行为 |
-| V7 | 模块热更新 | 日志 `hot_reloaded replaced=...`，Hook 仍命中；未装 Hook 的宿主强停后恢复 |
+| V1 | 来电点 AI | 旧 `AiModeDialog`/旧 CallScreen；无 `AiAssistCallFragment` |
+| V2 | `Settings.Global com.xiaomi.aiasst.call.autoAnswer=1` + 来电 | 旧链路 `incall_ring` → 旧自动接听 |
+| V3 | Osbot | 无新引擎接管/TTS/自动接听 |
+| V4 | 拨号/联系人 AI 入口 | 回退旧记录/设置；`resolve_activity` 日志命中 |
+| V5 | AI 通话中第二路来电 | 不被 `AiAssistCallScreeningService` 拒绝 |
+| V6 | HyperPhone 设置页 | 可打开；开关不驱动新引擎 |
+| V7 | 模块覆盖安装 | `hot_reloaded replaced=...`；Hook 继续命中 |
+| V8 | 日志 | 每条 Hook 至少一次 `hook_hit` |
 
-### 8.3 回退
-
-停用模块 → 强停 5 个宿主。模块不改 APK/DB/设置，回退无残留。
-
----
-
-## 9. 风险与缓解
-
-| 风险 | 影响 | 缓解 |
-|---|---|---|
-| 混淆名随版本漂移（`k3.l`、`A1.O`、`Utils`） | Hook 不命中 | 按版本记录证据；`class_not_found` 日志；缺失即 no-op；不硬编码崩溃 |
-| `query` 返回空/`null` 游标 | 个别调用方 NPE | 优先空 `MatrixCursor`；观察日志与崩溃；必要时退回 `null`（已验证） |
-| `onCallAdded` 全阻断 | 新引擎所有功能（含摘要/骚扰拦截）失效 | 符合“回退旧引擎”目标；文档明示；可按需改为只阻断 `setupAutoAnswer` |
-| ART inline | flag Hook 不触发 | 先看 `hook_hit`；改 Hook 决策点；最后 `deoptimize` |
-| Process 名不在 `packageName` | 回调不触发 | 先记录所有 `route`；按真机证据调整进程匹配 |
-| LSPilot 同名插件共存 | 双重 Hook、行为难判定 | README 标注互斥；验证前禁用旧插件 |
-| Android 17 平台/AGP 兼容 | 构建失败 | 已选本地可用的 36 + AGP 8.12；备用 AGP 9.1.1 |
-| Hot Reload 不重放生命周期 | 未安装的宿主热更后仍无 Hook | 日志提示；强停目标进程 |
+回退：停用模块 + 强停 5 个宿主；不改 APK/DB/设置。
 
 ---
 
-## 10. 分阶段实施与验收
+## 10. 风险
+
+| 风险 | 缓解 |
+|---|---|
+| `ApplicationPackageManager` 为隐藏类，OEM 若替换实现 | 运行时 `Class.forName` + 方法查找；缺失日志；Hook 失败 no-op |
+| 框架 Hook 面较宽 | 严格过滤包名/Intent；其余 `proceed()`；不修改共享 `ApplicationInfo` |
+| InCallUI `Utils`/`AiAssistantUtils` 未来改名 | 属稳定命名点；缺失日志；可选退回框架 `getApplicationInfo` 方案 |
+| `OsbotInCallService` 改名 | 已是最小侵入点；缺失时新引擎仍被 InCallUI 入口与配置熔断削弱 |
+| 配置 `query` 空游标 | 标准空结果；观察 HyperPhone 设置页与日志 |
+| ART inline | 先看 `hook_hit`；必要时 `deoptimize` 或改决策点 |
+| 热重载框架不支持 | 日志 `unsupported_api`；Hook 仍可用，需重启进程更新代码 |
+| 与 LSPilot 旧插件共存 | README 标注互斥 |
+
+---
+
+## 11. 阶段
 
 | Phase | 内容 | 验收 |
 |---|---|---|
-| 0 | 工作空间（git、忽略规则、README、本计划） | 目录结构正确；`git status` 干净（除本地大文件） |
-| 1 | Gradle 骨架 + 元数据 + 入口日志（不装 Hook） | `assembleDebug` 成功；APK 内含 3 个 xposed 元数据文件；LSPosed 可识别、日志 `module_loaded` |
-| 2 | 7 个 Hook（5 宿主） | 每个 `hook_installed`；V1–V6 全过 |
-| 3 | Hot Reload | 模块覆盖安装后 `hot_reloaded`，Hook 继续命中 |
-| 4 | 文档收尾 | README 更新用法/版本矩阵；移除外置调试代码 |
+| 0 | 工作空间 + 计划 v2 | 已完成 |
+| 1 | Gradle 骨架、元数据、入口生命周期（不装 Hook） | `assembleDebug` 成功；APK 元数据齐全 |
+| 2 | 7 个 Hook（含 2 个框架 seam） | 每个 `hook_installed`；V1–V6 通过 |
+| 3 | Hot Reload | V7 通过 |
+| 4 | GitHub Actions + release 签名 | tag 构建产物可验签 |
+| 5 | README/版本矩阵收尾 | 文档与产物一致 |
 
-Phase 1 的入口只记录生命周期与路由，不安装任何 Hook；不会伪装成“已实现”。
+Phase 1 的入口只记录生命周期与路由，不装 Hook，不伪装成已实现。
 
 ---
 
-## 11. 待审阅决策
+## 12. 待确认
 
-1. `phone.config_query` 返回**空 MatrixCursor**（推荐）还是沿用 LSPilot 的 `null`？
-2. Osbot 采用**整段 `onCallAdded` 短路**（推荐）还是只 Hook `setupAutoAnswer`（保留新引擎其它能力）？
-3. 是否同时阻断 `ai_call_auto_answer_delay`（改变自动接听延时）？默认**不阻断**，沿用用户设置。
-4. HyperOS 3 设备是否保持纯 no-op（推荐，类不存在自然跳过）还是加开机版本硬门禁？
-5. 模块包名/应用名：`io.github.xrh0905.ohmicall` / `OhMiCallAssistant` 是否确认？
-6. 是否需要最小设置页（Remote Preferences 开关各 Hook）？默认**不做**，先用静态行为。
-7. Release 签名方式：本地 `keystore.properties`（不入库）还是仅提供 debug APK？
+1. 设备上的 LSPosed/Vector 具体版本是否已支持 API 102？若只有 101，需要升级框架或把
+   `minApiVersion` 降到 101 并放弃热重载。
+2. 两个框架 seam 是否保留“混淆名兜底”（`k3.l.k` / `A1.O.e`）？默认**不保留**，只打日志。
+3. release 签名 secrets 是否由你提供；在此之前 CI 只产出 debug APK。
+4. tag 规则使用 `v*` + `GITHUB_RUN_NUMBER` 作为 versionCode 是否可接受。

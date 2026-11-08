@@ -1,9 +1,9 @@
-# OhMiCallAssistant
+# OhMiCall
 
 在 HyperOS 4（CN，Android 17）上把 AI 通话链路切回 HyperOS 3 的旧引擎
 `com.xiaomi.aiasst.service`，并熔断 HyperOS 4 新增的配置中心 / Osbot(MiClaw) 新引擎。
 
-实现形式：单个 LSPosed 模块（libxposed **API 102**、**静态 scope**、**Hot Reload**）。
+实现形式：单个 LSPosed 模块 `OhMiCall`（libxposed **API 102**、**静态 scope**、**Hot Reload**）。
 
 远程仓库 `https://github.com/xrh0905/OhMiCallAssistant` 当前返回 HTTP 404（私有或未创建），
 本目录是本地工作空间。
@@ -13,11 +13,11 @@
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | 0 | 工作空间创建（git 基线、目录与忽略规则、README） | 完成 |
-| 0 | 详细实施计划 `PLAN.md` | 完成，待审阅 |
+| 0 | 详细实施计划 `PLAN.md` v2（抗混淆框架 seam、Hot Reload 要求、CI） | 完成，待审阅 |
 | 1 | Gradle/LSPosed 工程骨架 | 待批准 |
 | 2 | 5 个宿主包的 Hook 实现 | 待批准 |
 | 3 | 静态 scope + Hot Reload 接线 | 待批准 |
-| 4 | 构建、APK 校验、真机验证 | 待批准 |
+| 4 | GitHub Actions、release 签名、真机验证 | 待批准 |
 
 ## 目录
 
