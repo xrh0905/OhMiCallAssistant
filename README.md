@@ -25,7 +25,7 @@
 | `module/` | LSPosed 模块源码、`META-INF/xposed`、资源 | 入库 |
 | `docs/` | 逆向结论、签名说明 | 入库 |
 | `plugins/` | 旧 LSPilot(BeanShell) 插件，作为 Hook 语义参考 | 入库（log/error 忽略） |
-| `apk/` | OS3/OS4 基线 APK | 本地保留，忽略 |
+| `apk/` | OS3/OS4 基线 APK；`apk/os4/` 为设备实拉 + Manifest，清单见 `docs/OS4_ASSETS.md` | 本地保留，忽略 |
 | `decomp/` | jadx 反编译源码（证据来源） | 本地保留，忽略 |
 | `signing/` | release keystore 与密码 | 本地保留，忽略 |
 | `PLAN.md` | Hook 清单、构建、验证、风险 | 入库 |
