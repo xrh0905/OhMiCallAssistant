@@ -51,7 +51,8 @@ release 使用 `signing/keystore.properties`（见 `docs/SIGNING.md`）；CI 使
 1. 安装 APK，在 LSPosed 中启用模块。scope 由 `META-INF/xposed/scope.list` 固定：
    `com.xiaomi.phone`、`com.android.incallui`、`com.android.contacts`、
    `com.xiaomi.aiasst.service`、`com.miui.voiceassist`。
-2. 强停上述 5 个宿主（首次启用/覆盖安装后必须）。
+2. **先确认没有响铃/通话**，再重启设备，或运行 `pwsh scripts/restart-hosts.ps1`
+   （脚本会检测 `dumpsys telecom`，通话中拒绝执行）。不要在响铃中强停宿主。
 3. LSPosed 日志过滤 `OhMiCall`，期望：
    `module_loaded` → `route` → `hook_installed` → `hook_hit`。
 4. 功能验证 V1–V8 见 `PLAN.md` §9。

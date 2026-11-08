@@ -347,7 +347,18 @@ unzip -l module-debug.apk | findstr META-INF/xposed
 | V7 | 模块覆盖安装 | `hot_reloaded replaced=...`；Hook 继续命中 |
 | V8 | 日志 | 每条 Hook 至少一次 `hook_hit` |
 
-回退：停用模块 + 强停 5 个宿主；不改 APK/DB/设置。
+回退：停用模块 + 在**无通话时**强停 5 个宿主；不改 APK/DB/设置。
+
+### 9.3 2026-11-08 实测结论
+
+| 通话 | 操作 | 结果 |
+|---|---|---|
+| TC@1 | 响铃中执行 5 包 `force-stop` | 触发点被杀死；对端 20:10:04 挂断，Telecom `MISSED` / `INCOMING_MISSED` / `CODE_USER_TERMINATED_BY_REMOTE` |
+| TC@2 | 无 `force-stop`，模块已就绪 | `aiasst.app_info_meta` 命中；旧 `InCallAiServiceImpl` 绑定并 `onCallAdded`；`Awake ai assistant.` → `incall_ring`；旧引擎自动接听成功 |
+
+- InCallUI **没有崩溃**；TC@1 结束后 20:10:13 被系统 `umms_pressure` 回收，Telecom `isCrashed: false`。
+- 根因是验证流程在响铃中强停宿主，不是模块 Hook。
+- 新增 `scripts/restart-hosts.ps1`：通话中拒绝重启；步骤见 `docs/TESTING.md`。
 
 ---
 
