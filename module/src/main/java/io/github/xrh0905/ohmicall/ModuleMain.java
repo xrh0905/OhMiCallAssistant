@@ -40,7 +40,7 @@ public final class ModuleMain extends XposedModule {
         if (!Hooks.isTargetPackage(pkg)) {
             return;
         }
-        if (!pkg.equals(processName)) {
+        if (!pkg.equals(processName) && !processName.startsWith(pkg + ":")) {
             log(Log.INFO, TAG, "event=route_skip package=" + pkg + " process=" + processName);
             return;
         }

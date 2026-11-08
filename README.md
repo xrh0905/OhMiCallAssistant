@@ -15,7 +15,7 @@
 | 1 | Gradle/LSPosed 工程骨架 | 完成，debug/release 构建通过 |
 | 2 | 5 个宿主包、7 个 Hook | 完成，待真机验证 |
 | 3 | 静态 scope + API 102 Hot Reload | 完成，待真机验证 |
-| 4 | GitHub Actions、release 签名 | 完成，待推送仓库 |
+| 4 | GitHub Actions、release 签名 | 完成，CI 通过，`v0.1.0` 已发布 |
 | 5 | 真机功能验证 V1–V8 | 待设备接入 |
 
 ## 目录

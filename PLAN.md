@@ -23,8 +23,8 @@ v3 相对 v2：
 | 1 | Gradle/LSPosed 骨架、元数据、入口路由 | 完成 |
 | 2 | 5 个宿主、7 个 Hook | 完成（代码 + 构建） |
 | 3 | 静态 scope、API 102 Hot Reload | 完成（代码 + 构建） |
-| 4 | GitHub Actions、release 签名 | 完成（待推送/配置 secrets） |
-| 5 | 真机 V1–V8 | 待设备接入 |
+| 4 | GitHub Actions、release 签名 | 完成；CI 绿，`v0.1.0` 已发布 |
+| 5 | 真机 V1–V8 | 设备已接入；LSPosed 启用由用户处理 |
 
 构建验证：
 
@@ -45,8 +45,10 @@ R8 后 `java_init.list` 自动改写为混淆后的入口类名。
 | 远程仓库 | `https://github.com/xrh0905/OhMiCallAssistant`（已创建并推送 `main`） | `gh repo view` |
 | 本地目录 | 已 `git init`，首次提交 `4224bee`；`apk/ decomp/` 本地保留、不入库 | `git log` |
 | OS4 基线 | HyperPhone 15.0.3 / InCallUI 40.01.58 / Contacts 18.30.00.73 / aiasst 6.2.2 / voiceassist 8.2.65 | `docs/` |
+| OS4 APK（已拉取） | `apk/os4/`：HyperPhone、InCallUI、Contacts、MIUIAiasstService、VoiceAssist、TeleService、Telecom + 各 `*.manifest.xml` | 设备 `pm path` / `apkanalyzer` |
+| 进程事实 | InCallUI `InCallServiceImpl` 显式 `android:process="com.android.incallui"`；aiasst `InCallAiServiceImpl`、Osbot `OsbotInCallService` 默认主进程；Contacts 存在 `:business` | `apk/os4/*.manifest.xml` |
 | 构建环境 | JDK 21、SDK platform 36/37、build-tools 36.0.0、Gradle 8.14.3、AGP 8.12.0、`libxposed:api:102.0.0` 均已缓存 | 本地检查 |
-| 设备 | `adb devices` 为空 | 本地检查 |
+| 设备 | `2936262d`（popsicle / OS4.0.6.0.XPBCNXM / Android 17），LSPosed v2.2.1 (7912)，API 102 | `adb` / `lspctl status` |
 
 ---
 
@@ -228,7 +230,8 @@ ai_call_trigger_answer
 | `onHotReloading` | `setSavedInstanceState(processName)`；返回 `true`；无线程/native |
 | `onHotReloaded` | 旧 `HookHandle` 按 `getId()` 查 `HookTable`，`replaceHook()`；未知 id `unhook()` |
 
-- 包名/进程名双重过滤；进程名先按 `== packageName`，真机日志出现 `:xxx` 再按证据扩展。
+- 包名/进程名双重过滤：`processName == packageName` 或 `processName` 以 `packageName + ":"` 开头
+  （覆盖 Telecom 绑定服务可能所在的 `:xxx` 子进程）。
 - 单 Hook 失败只记录，不影响其它宿主。
 - 所有日志前缀 `OhMiCall`，事件码：`module_loaded`、`route`、`hook_installed`、`hook_hit`、
   `class_not_found`、`method_not_found`、`hot_reloaded`。
@@ -371,8 +374,8 @@ unzip -l module-debug.apk | findstr META-INF/xposed
 | 1 | Gradle 骨架、元数据、入口路由 | 完成；`assembleDebug` 成功 |
 | 2 | 7 个 Hook（含 2 个应用进程内框架 seam） | 完成；构建通过，待真机 V1–V6 |
 | 3 | Hot Reload | 完成；待真机 V7 |
-| 4 | GitHub Actions + release 签名 | 完成；本地 release 已签名并验签 |
-| 5 | 真机 V1–V8 | 待设备接入 |
+| 4 | GitHub Actions + release 签名 | 完成；本地/CI release 均验签通过 |
+| 5 | 真机 V1–V8 | 设备已接入；LSPosed 启用由用户处理 |
 
 ---
 
@@ -392,4 +395,5 @@ unzip -l module-debug.apk | findstr META-INF/xposed
 | tag | `v*` + `GITHUB_RUN_NUMBER` 作为 versionCode |
 | 仓库 | `xrh0905/OhMiCallAssistant`，已推送 `main` |
 
-剩余唯一未完成项：真机功能验证（无 adb 设备）。
+剩余唯一未完成项：真机功能验证。设备 `2936262d` 已接入并确认 LSPosed v2.2.1 (7912)，
+OS4 APK 与 Manifest 已拉取；模块启用/scope 由用户处理。
