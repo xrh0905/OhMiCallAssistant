@@ -5,8 +5,7 @@
 
 实现形式：单个 LSPosed 模块 `OhMiCall`（libxposed **API 102**、**静态 scope**、**Hot Reload**）。
 
-远程仓库 `https://github.com/xrh0905/OhMiCallAssistant` 当前返回 HTTP 404（私有或未创建），
-本目录是本地工作空间。
+远程仓库：`https://github.com/xrh0905/OhMiCallAssistant`
 
 ## 状态
 

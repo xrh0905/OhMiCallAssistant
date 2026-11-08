@@ -42,7 +42,7 @@ R8 后 `java_init.list` 自动改写为混淆后的入口类名。
 
 | 项 | 结论 | 来源 |
 |---|---|---|
-| 远程仓库 | `https://github.com/xrh0905/OhMiCallAssistant` → HTTP 404 | 探测 |
+| 远程仓库 | `https://github.com/xrh0905/OhMiCallAssistant`（已创建并推送 `main`） | `gh repo view` |
 | 本地目录 | 已 `git init`，首次提交 `4224bee`；`apk/ decomp/` 本地保留、不入库 | `git log` |
 | OS4 基线 | HyperPhone 15.0.3 / InCallUI 40.01.58 / Contacts 18.30.00.73 / aiasst 6.2.2 / voiceassist 8.2.65 | `docs/` |
 | 构建环境 | JDK 21、SDK platform 36/37、build-tools 36.0.0、Gradle 8.14.3、AGP 8.12.0、`libxposed:api:102.0.0` 均已缓存 | 本地检查 |
@@ -390,6 +390,6 @@ unzip -l module-debug.apk | findstr META-INF/xposed
 | 设置页 | 不做 |
 | 签名 | 已生成 keystore；GitHub Actions secrets 签名 |
 | tag | `v*` + `GITHUB_RUN_NUMBER` 作为 versionCode |
-| 仓库 | 已创建，直接 push `main` |
+| 仓库 | `xrh0905/OhMiCallAssistant`，已推送 `main` |
 
 剩余唯一未完成项：真机功能验证（无 adb 设备）。
