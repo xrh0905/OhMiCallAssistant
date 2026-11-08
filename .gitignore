@@ -1,0 +1,27 @@
+# Gradle / Android
+.gradle/
+build/
+**/build/
+local.properties
+captures/
+.cxx/
+*.iml
+.idea/
+*.hprof
+
+# 构建产物
+*.apk
+*.aab
+*.apks
+
+# 逆向分析产物（体积大，本地保留，证据见 docs/）
+/apk/
+/decomp/
+
+# LSPilot 运行日志
+plugins/**/log/
+plugins/**/error/
+
+# OS
+Thumbs.db
+.DS_Store

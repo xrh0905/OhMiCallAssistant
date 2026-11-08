@@ -1,0 +1,8 @@
+#Fri Nov 06 19:43:54 GMT+08:00 2026
+author=LSPilot
+name=旧版AI通话绑定修复 (aiasst)
+language=java
+id=99c67934fa9c002096d304eaa8aa942e
+version=1.0.0
+pkg=com.xiaomi.aiasst.service
+desc=旧引擎 InCallAiServiceImpl 在 A1.O.e(ctx) 为 true 时会拒绝 onBind/onCallAdded("InCallUi supports ai assist answer"), 导致旧版自动接听无法绑定、CallScreen 会话异常(error 11/网络不佳/发送禁用)。\n该判断读取三个 APK meta\: com.miui.voiceassist/xiaoai_support_autoanswer\=1, com.android.contacts/support_ai_call\=1, com.android.incallui/incall_ai_assist_answer>\=1。\nhook A1.O.e(Context) -> false, 让旧引擎正常绑定。不改 APK, 不改设置。

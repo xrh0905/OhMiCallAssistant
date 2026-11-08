@@ -1,0 +1,8 @@
+#Fri Nov 06 19:31:39 GMT+08:00 2026
+author=LSPilot
+name=AI通话回退旧版 (InCallUI)
+language=java
+id=f306a131917e39f337cbec570c4ddfdd
+version=1.0.0
+pkg=com.android.incallui
+desc=把 com.android.incallui 的 AI 通话入口从新引擎(小爱 Osbot/MiClaw)切回旧引擎(com.xiaomi.aiasst.service)。\n做法\: supportXiaoAiAutoAnswer(Context) 强制 false -> CallCardFragment.onAiCallClick 走 else 分支 -> AiAssistantHelper.enterAi() -> 旧 AiModeDialog + com.xiaomi.aiasst.service.use_ai_call(_dial) 广播。\n同时把 Utils.aiCallAutoAnswerEnabled() 强制 false, 关掉新引擎的自动接听; 旧自动接听仍由 aiasst 的 auto_pickup_toggle 控制。\n注意\: 该 flag 只影响 InCallUI; Contacts 的 AI 通话入口是独立判断(k3.l.k -> miui.intent.action.AiCallSetting)。

@@ -1,0 +1,7 @@
+#Tue Oct 20 14:20:46 GMT+08:00 2026
+author=LSPilot
+name=AiCallScopeProbe
+id=46977774458a8f1da5d3779cd0272f66
+version=1.0.0
+pkg=com.xiaomi.phone
+desc=宿主进程内探测 AI通话配置(ai_call_config.db / provider / shared_prefs)是否存在问候语键

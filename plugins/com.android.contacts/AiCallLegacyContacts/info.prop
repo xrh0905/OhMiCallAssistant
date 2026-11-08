@@ -1,0 +1,8 @@
+#Fri Nov 06 19:31:40 GMT+08:00 2026
+author=LSPilot
+name=AI通话入口回退旧版 (Contacts)
+language=java
+id=3c177553ca6c6188e8a7d65051cef194
+version=1.0.0
+pkg=com.android.contacts
+desc=把拨号/联系人里的 AI 通话入口回退到旧版。\n依据\: com.android.contacts 的 k3.l.k(Context) 通过 resolveActivity(miui.intent.action.AiCallSetting) 判断是否存在 HyperPhone 新设置页; k3.l.C(Context) 依赖它。\nhook k(Context) -> false 后 C 返回 false, 调用方回退到 com.xiaomi.aiasst.service.contact.aicalllog_detail / 旧 AI 通话设置。\n不改任何通话引擎, 只影响入口跳转。

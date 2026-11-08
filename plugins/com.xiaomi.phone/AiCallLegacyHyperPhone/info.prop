@@ -1,0 +1,8 @@
+#Fri Nov 06 19:31:35 GMT+08:00 2026
+author=LSPilot
+name=AI通话新引擎配置熔断 (HyperPhone)
+language=java
+id=96dc9b3e17c18a8435022d6f1add3d27
+version=1.0.0
+pkg=com.xiaomi.phone
+desc=在 com.xiaomi.phone 里拦截 AiCallConfigProvider.query, 把新引擎的关键开关强制读成 false。\n键\: ai_call_auto_answer_enabled / ai_call_auto_answer_enabled_sim2 / ai_call_trigger_answer。\n效果\: com.miui.voiceassist 的 OsbotInCallService 读不到 enabled\=true(不再 20s 自动接听), 也读不到 trigger_answer\=true(不再手动接管); 对 InCallUI/voiceassist 等所有 reader 统一生效。\n旧引擎配置在 com.xiaomi.aiasst.service 自己的 prefs(auto_pickup_toggle), 不受影响。
