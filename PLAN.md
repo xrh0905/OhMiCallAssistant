@@ -1,16 +1,40 @@
-# OhMiCall 实施计划 v2（待审阅）
+# OhMiCall 实施计划 v3（已定稿）
 
 目标：在 HyperOS 4 CN 上，用单个 LSPosed 模块把 AI 通话链路切回 HyperOS 3 的旧引擎
 `com.xiaomi.aiasst.service`，并熔断 HyperOS 4 的 HyperPhone 配置中心与 Osbot/MiClaw 新引擎。
 
 约束：libxposed **API 102**、**静态 scope**、**Hot Reload**、Java、最小 Hook、可诊断、可回退。
 
-v2 相对 v1 的变化：
+v3 相对 v2：
 
-1. 去掉两个混淆目标：不再 Hook `k3.l.k` 与 `A1.O.e`，改为 Hook 它们读取的**框架 API**。
-2. 明确 Hot Reload 的 API / 框架 / SDK 要求。
-3. 锁定已确认决策：空 `MatrixCursor`、Osbot `onCallAdded` 整段短路、不阻断 delay、
-   HyperOS 3 纯 no-op、应用名 `OhMiCall`、无设置页、release 签名、GitHub Actions。
+1. 明确“不 Hook framework”的边界：**不注入 system_server / SystemUI / framework scope**；
+   应用进程内的 `PackageManager` 等框架 API Hook 可接受，且优先于 DexKit。
+2. 设备框架已确认 API 102；`minApiVersion=102` 与 Hot Reload 按原方案启用。
+3. 已生成 release keystore；CI 使用 secrets 签名；tag 规则 `v*` + `GITHUB_RUN_NUMBER` 确认。
+4. 工程、7 个 Hook、Hot Reload、CI 已落地并通过 debug/release 构建；仅剩真机验证。
+
+---
+
+## 0. 实现状态
+
+| Phase | 内容 | 状态 |
+|---|---|---|
+| 0 | 工作空间、计划 | 完成 |
+| 1 | Gradle/LSPosed 骨架、元数据、入口路由 | 完成 |
+| 2 | 5 个宿主、7 个 Hook | 完成（代码 + 构建） |
+| 3 | 静态 scope、API 102 Hot Reload | 完成（代码 + 构建） |
+| 4 | GitHub Actions、release 签名 | 完成（待推送/配置 secrets） |
+| 5 | 真机 V1–V8 | 待设备接入 |
+
+构建验证：
+
+```text
+:module:assembleDebug   BUILD SUCCESSFUL
+:module:assembleRelease BUILD SUCCESSFUL，apksigner verify 通过
+```
+
+APK 内容已确认：`META-INF/xposed/module.prop`、`scope.list`、`java_init.list`；
+R8 后 `java_init.list` 自动改写为混淆后的入口类名。
 
 ---
 
@@ -42,8 +66,8 @@ v1（沿用 LSPilot）直接 Hook：
 
 | 原混淆目标 | 它真正做的事 | 稳定替代点 | 版本稳定性 |
 |---|---|---|---|
-| Contacts `k3.l.k` | `PackageManager.resolveActivity("miui.intent.action.AiCallSetting")` 是否非空 | `ApplicationPackageManager.resolveActivity(Intent, int)` / `(Intent, ResolveInfoFlags)` | Android 框架 API，跨 HyperOS 版本稳定 |
-| aiasst `A1.O.e` | 读三个包的 APK meta：`xiaoai_support_autoanswer`、`support_ai_call`、`incall_ai_assist_answer` | `ApplicationPackageManager.getApplicationInfo(String, int)`，只把 `com.android.incallui` 的 `incall_ai_assist_answer` 改 0 | Android 框架 API，跨 HyperOS 版本稳定 |
+| Contacts `k3.l.k` | `PackageManager.resolveActivity("miui.intent.action.AiCallSetting")` 是否非空 | 应用进程内 `ApplicationPackageManager.resolveActivity(Intent, int)` / `(Intent, ResolveInfoFlags)` | Android API，跨 HyperOS 版本稳定 |
+| aiasst `A1.O.e` | 读三个包的 APK meta：`xiaoai_support_autoanswer`、`support_ai_call`、`incall_ai_assist_answer` | 应用进程内 `ApplicationPackageManager.getApplicationInfo(String, int)`，只把 `com.android.incallui` 的 `incall_ai_assist_answer` 改 0 | Android API，跨 HyperOS 版本稳定 |
 
 这样：
 
@@ -51,22 +75,37 @@ v1（沿用 LSPilot）直接 Hook：
 - 不需要 DexKit、不需要运行时扫 DEX、不需要适配混淆映射；
 - Hook 语义仍是最小范围：只改这两个 `PackageManager` 调用的结果。
 
+**边界**：以上 `PackageManager` Hook 只安装在 `com.android.contacts`、
+`com.xiaomi.aiasst.service` 自己的进程内；scope 不含 `system`、SystemUI、framework。
+不修改系统服务、不修改全局包管理状态。
+
+### 2.2.1 为什么不用 DexKit
+
+DexKit 可用，但它解决的是“定位混淆类/方法”。这里已经改用更稳定的输入层
+（`PackageManager` 调用），不需要定位 `k3.l` / `A1.O`。引入 DexKit 只会增加：
+
+- 依赖与 APK 体积；
+- 首次 DEX 扫描耗时；
+- 对混淆字符串的二次依赖。
+
+因此 v3 不引入 DexKit；若未来出现无法用稳定 API 覆盖的混淆点，再作为第三层方案。
+
 ### 2.3 分层选择
 
 | 层 | 用于 | 例子 |
 |---|---|---|
-| A. 框架 API（首选，抗混淆） | 混淆 helper 的输入 | `resolveActivity`、`getApplicationInfo` |
+| A. 应用进程内 Android API（首选，抗混淆） | 混淆 helper 的输入 | `resolveActivity`、`getApplicationInfo` |
 | B. 稳定命名应用类 | 未混淆、语义明确的决策点 | `AiAssistantUtils`、`Utils`、`AiCallConfigProvider`、`OsbotInCallService` |
-| C. 混淆名（v2 不使用） | 仅当 A/B 都不可能时 | `k3.l`、`A1.O` |
+| C. 混淆名（不使用） | 仅当 A/B 都不可能时 | `k3.l`、`A1.O` |
 
-层 B 的类在当前 APK 中均为可读名称，且是系统/应用公开语义点；仍记录版本矩阵，
+层 B 的类在当前 APK 中均为可读名称，且是应用公开语义点；仍记录版本矩阵，
 缺失时 `class_not_found` 后 no-op，不崩溃。
 
-### 2.4 不做 DexKit 动态查找的理由
+### 2.4 不修改系统框架
 
-- 两个混淆点都已被框架 API 完全覆盖；
-- DexKit 引入额外依赖、首次扫描成本、混淆字符串本身也可能变化；
-- 保留为未来“第三层”方案，不进入 v1 实现。
+- scope 固定为 5 个应用包，不包含 `system`、`com.android.systemui`。
+- 不使用 `deoptimize` 全局方法、不修改 `PackageManagerService`、不写系统设置。
+- 所有框架 API Hook 都只作用于被注入应用进程内的对象。
 
 ---
 
@@ -212,11 +251,12 @@ ai_call_trigger_answer
 
 ### 6.2 框架版本
 
-- LSPosed 需为支持 API 102 的 2.2.x 级别构建（社区参考环境为 LSPosed 2.2.0-it，API 102，version code 7866）；
-  Vector 2.2+ 也已支持 API 102 热重载。
+- 目标设备框架已确认 **API 102**，因此 `minApiVersion=102` 与 `autoHotReload=true` 可用。
+- 参考基线：LSPosed 2.2.x 级别构建（社区参考 2.2.0-it，API 102，version code 7866）；
+  Vector 2.2+ 同样支持 API 102 热重载。
 - 本模块在 `onModuleLoaded` 打印 `api=... framework=... version=...`；
   若 `getApiVersion() < 102`，记录 `unsupported_api`，Hook 仍安装，但不要期望热重载。
-- 官方 LSPosed GitHub Releases 停留在 1.9.2，2.x 通过其发行渠道分发；README 会写清版本要求。
+- 官方 LSPosed GitHub Releases 停留在 1.9.2，2.x 通过其发行渠道分发。
 
 ### 6.3 热重载实现约束
 
@@ -249,69 +289,34 @@ R8：
 }
 ```
 
-签名：
+签名（已生成）：
+
+```text
+signing/ohmicall-release.jks      RSA 4096 / 10000 天 / alias=ohmicall
+signing/keystore.properties       本地构建使用
+signing/keystore.base64           用于 GitHub Secret
+```
 
 - debug：默认 debug keystore，用于本地/PR 验证。
-- release：`keystore.properties`（本地，忽略）或 CI secrets；
-  `signingConfigs.release` 仅在对应变量存在时启用，否则 release 不产出。
-- `versionCode` 默认 1；CI 可用 `GITHUB_RUN_NUMBER` 覆盖；`versionName` 来自 tag 或 `0.1.0`。
+- release：本地读取 `signing/keystore.properties`；CI 读取环境变量 secrets。
+  `signing/` 已忽略，不入库。详见 `docs/SIGNING.md`。
+- `versionCode` 默认 1；CI 取 `GITHUB_RUN_NUMBER`；`versionName` 来自 tag 或 `0.1.0`。
 
 ---
 
-## 8. GitHub Actions
+## 8. GitHub Actions（已实现）
 
-新增 `.github/workflows/build.yml`：
+`.github/workflows/build.yml`：
 
-```yaml
-name: build
-on:
-  push:
-    branches: [main]
-    tags: ['v*']
-  pull_request:
-  workflow_dispatch:
+| Job | 触发 | 内容 |
+|---|---|---|
+| `debug` | push / PR / 手动 | JDK 21 + Android SDK + Gradle cache；`assembleDebug`；校验 `META-INF/xposed/*`；上传 `OhMiCall-debug` artifact |
+| `release` | `v*` tag | base64 解码 keystore；`assembleRelease`；`apksigner verify --print-certs`；创建 GitHub Release |
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: '21' }
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
-      - run: chmod +x gradlew
-      - run: ./gradlew --no-daemon :module:assembleDebug
-      - run: unzip -l module/build/outputs/apk/debug/*.apk | grep META-INF/xposed/
-      - uses: actions/upload-artifact@v4
-        with:
-          name: OhMiCall-debug
-          path: module/build/outputs/apk/debug/*.apk
-      # release（仅 tag，且 secrets 存在时）
-      - name: Decode keystore
-        if: startsWith(github.ref, 'refs/tags/')
-        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
-      - name: Build release
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          KEYSTORE_PATH: ${{ github.workspace }}/keystore.jks
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon :module:assembleRelease
-      - name: Verify signature
-        if: startsWith(github.ref, 'refs/tags/')
-        run: apksigner verify --print-certs module/build/outputs/apk/release/*.apk
-      - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: module/build/outputs/apk/release/*.apk
-```
-
-- 需要配置的 secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、
-  `ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。
-- PR/push 只构建 debug；tag 构建 release 并发布。
-- CI 只做构建与 APK 元数据校验；行为验证需要真机。
+- secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、
+  `ANDROID_KEY_PASSWORD`；值由 `scripts/export-gh-secrets.ps1` 输出。
+- `versionCode=GITHUB_RUN_NUMBER`，`versionName=tag 去掉 v`。
+- CI 只做构建与 APK 校验；V1–V8 行为验证需要真机。
 
 ---
 
@@ -362,21 +367,29 @@ unzip -l module-debug.apk | findstr META-INF/xposed
 
 | Phase | 内容 | 验收 |
 |---|---|---|
-| 0 | 工作空间 + 计划 v2 | 已完成 |
-| 1 | Gradle 骨架、元数据、入口生命周期（不装 Hook） | `assembleDebug` 成功；APK 元数据齐全 |
-| 2 | 7 个 Hook（含 2 个框架 seam） | 每个 `hook_installed`；V1–V6 通过 |
-| 3 | Hot Reload | V7 通过 |
-| 4 | GitHub Actions + release 签名 | tag 构建产物可验签 |
-| 5 | README/版本矩阵收尾 | 文档与产物一致 |
-
-Phase 1 的入口只记录生命周期与路由，不装 Hook，不伪装成已实现。
+| 0 | 工作空间、计划 | 完成 |
+| 1 | Gradle 骨架、元数据、入口路由 | 完成；`assembleDebug` 成功 |
+| 2 | 7 个 Hook（含 2 个应用进程内框架 seam） | 完成；构建通过，待真机 V1–V6 |
+| 3 | Hot Reload | 完成；待真机 V7 |
+| 4 | GitHub Actions + release 签名 | 完成；本地 release 已签名并验签 |
+| 5 | 真机 V1–V8 | 待设备接入 |
 
 ---
 
-## 12. 待确认
+## 12. 决策记录
 
-1. 设备上的 LSPosed/Vector 具体版本是否已支持 API 102？若只有 101，需要升级框架或把
-   `minApiVersion` 降到 101 并放弃热重载。
-2. 两个框架 seam 是否保留“混淆名兜底”（`k3.l.k` / `A1.O.e`）？默认**不保留**，只打日志。
-3. release 签名 secrets 是否由你提供；在此之前 CI 只产出 debug APK。
-4. tag 规则使用 `v*` + `GITHUB_RUN_NUMBER` 作为 versionCode 是否可接受。
+| 问题 | 结论 |
+|---|---|
+| 框架 API 版本 | 设备已确认 API 102；`minApiVersion=102`、Hot Reload 启用 |
+| 混淆点兜底 | 不使用 `k3.l.k` / `A1.O.e` 硬编码；应用进程内 `PackageManager` seam；不做 DexKit |
+| 配置返回值 | 空 `MatrixCursor` |
+| Osbot | `onCallAdded` 整段短路 |
+| delay 键 | 不阻断 |
+| HyperOS 3 | 纯 no-op |
+| 应用名 | `OhMiCall` |
+| 设置页 | 不做 |
+| 签名 | 已生成 keystore；GitHub Actions secrets 签名 |
+| tag | `v*` + `GITHUB_RUN_NUMBER` 作为 versionCode |
+| 仓库 | 已创建，直接 push `main` |
+
+剩余唯一未完成项：真机功能验证（无 adb 设备）。
