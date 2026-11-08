@@ -21,7 +21,11 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK packages
+        run: |
+          set -e
+          sdkmanager=$(find "$ANDROID_HOME" -path '*/bin/sdkmanager' | head -1)
+          yes | "$sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
 
       - uses: gradle/actions/setup-gradle@v4
 
@@ -50,7 +54,11 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK packages
+        run: |
+          set -e
+          sdkmanager=$(find "$ANDROID_HOME" -path '*/bin/sdkmanager' | head -1)
+          yes | "$sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
 
       - uses: gradle/actions/setup-gradle@v4
 
